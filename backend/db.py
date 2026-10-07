@@ -9,6 +9,8 @@ def connect():
     return psycopg.connect(DSN, row_factory=dict_row)
 
 
+# 台账只有一份事实来源：transformers.oil_expiry_date。
+# 拦截口（报送/工人）与顶栏台账专页读的都是同一张表的这一列。
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS iv_scans (
     id serial PRIMARY KEY,
@@ -23,6 +25,27 @@ CREATE TABLE IF NOT EXISTS iv_scans (
     created_at timestamptz NOT NULL,
     processed_at timestamptz
 );
+CREATE TABLE IF NOT EXISTS transformers (
+    id serial PRIMARY KEY,
+    name text NOT NULL UNIQUE,
+    oil_expiry_date date NOT NULL,
+    renewed_at timestamptz,
+    renewed_by text,
+    last_block_reason text,
+    last_block_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS oil_events (
+    id serial PRIMARY KEY,
+    transformer_id integer NOT NULL REFERENCES transformers(id),
+    event_type text NOT NULL,
+    detail text NOT NULL,
+    scan_id integer REFERENCES iv_scans(id),
+    created_by text NOT NULL,
+    created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oil_events_tr ON oil_events(transformer_id, id DESC);
+ALTER TABLE iv_scans
+    ADD COLUMN IF NOT EXISTS transformer_id integer REFERENCES transformers(id);
 CREATE OR REPLACE FUNCTION notify_iv_scan() RETURNS trigger AS $$
 BEGIN
   PERFORM pg_notify('iv_scan_new', NEW.id::text);
